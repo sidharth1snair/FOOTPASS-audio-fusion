@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+footpass_env/
+
+# Large / generated data (reproducible via scripts documented in README)
+data/*.h5
+TAAD_h5/
+*.pt
+*.npy
+*.7z
+*.zip
+videos/
+game_*.mp4
+best_model.pt
+
+# Model outputs / predictions (reproducible via run_TAAD_on_matches.py + evaluation.py)
+TAAD_predictions/
+TAAD_predictions_model20/
+TAAD_predictions_model20_kaggle/
+TAAD_predictions_model40/
+TAAD_predictions_model40_audio/
+playbyplay_PRED_model20/
+playbyplay_PRED_model40_audio.json
+runs/
+audio_sanity_check/
+
+# Notebooks with hardcoded credentials -- never commit as-is
+notebook-5.ipynb
+noteboook-111.ipynb
+footpassv1*.ipynb
+notebook_TAAD_val_inference.ipynb
+notebookebaf2c78bf.ipynb
+
+# Unrelated personal / third-party files
+*.pptx
+*.docx
+FOOTPASS A multi-modal multi-agent tactical context dataset for.pdf
