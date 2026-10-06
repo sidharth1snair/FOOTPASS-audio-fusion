@@ -7,9 +7,67 @@ from tqdm import tqdm
 import torch
 
 from models.model_TAAD_baseline import X3D_TAAD_Baseline
+from models.audio_fusion import TAAD_AUDIO_MARGIN
 
 from decord import VideoReader
 from decord import cpu
+
+
+def get_audio_window(audio_h5_path, gm_idx, sf, ef, margin=TAAD_AUDIO_MARGIN):
+
+    T = (ef - sf) + 2 * margin
+    energy = np.zeros((2, T), dtype=np.float32)
+    mask = 0.0
+
+    if not os.path.exists(audio_h5_path):
+        return energy, mask
+
+    game_key = f"game_{gm_idx}"
+
+    try:
+        with h5py.File(audio_h5_path, 'r') as af:
+            if game_key not in af:
+                return energy, mask
+            crowd = af[game_key]['crowd_energy'][:]
+            comm = af[game_key]['commentary_energy'][:]
+
+        n = len(crowd)
+        lo, hi = sf - margin, ef + margin
+        lo_c, hi_c = max(lo, 0), min(hi, n)
+        cseg, mseg = crowd[lo_c:hi_c], comm[lo_c:hi_c]
+
+        if cseg.size == 0:
+            # Requested window falls entirely outside the extracted audio
+            # (e.g. the video's last, short, boundary batch runs past the
+            # audio array's length). No audio available for this sample.
+            return energy, mask
+
+        pad_before, pad_after = lo_c - lo, hi - hi_c
+        if pad_before > 0 or pad_after > 0:
+            cseg = np.pad(cseg, (pad_before, pad_after), mode='edge')
+            mseg = np.pad(mseg, (pad_before, pad_after), mode='edge')
+
+        energy = np.stack([cseg, mseg], axis=0).astype(np.float32)
+        mask = 1.0
+
+    except (OSError, KeyError):
+        pass
+
+    return energy, mask
+
+
+def get_audio_batch(audio_h5_path, gm_idx, sf, T, B, margin=TAAD_AUDIO_MARGIN):
+
+    energy_batch = np.zeros((B, 2, T + 2 * margin), dtype=np.float32)
+    mask_batch = np.zeros(B, dtype=np.float32)
+
+    for b in range(B):
+        row_sf = sf + b * T
+        e, m = get_audio_window(audio_h5_path, gm_idx, row_sf, row_sf + T, margin)
+        energy_batch[b] = e
+        mask_batch[b] = m
+
+    return energy_batch, mask_batch
 
 
 def parse_args():
@@ -37,7 +95,9 @@ if __name__ == '__main__':
 
     DATA_ROOT = args.data_root
     MODEL_CHECKPOINT = args.model_checkpoint
-    MODEL_CHECKPOINT = os.path.join(DATA_ROOT, "runs", "TAAD_Baseline", MODEL_CHECKPOINT)
+    if not os.path.isabs(MODEL_CHECKPOINT) and not os.path.exists(MODEL_CHECKPOINT):
+        MODEL_CHECKPOINT = os.path.join(DATA_ROOT, "runs", "TAAD_Baseline", MODEL_CHECKPOINT)
+    MODEL_CHECKPOINT = os.path.abspath(MODEL_CHECKPOINT)
     SAVE_PATH = args.save_path
     SET_STATUS = args.set_to_run
     START_IDX = args.start_index
@@ -59,11 +119,10 @@ if __name__ == '__main__':
     print(device)
 
 
-    def get_clip(vidfilename, kept_frame_range) :
+    def get_clip(vr, kept_frame_range) :
 
         #### FETCH IMAGE SEQUENCE ####
 
-        vr = VideoReader(vidfilename, ctx=cpu(0))
         frames = vr.get_batch(np.asarray(kept_frame_range, dtype=np.int64)).asnumpy()
         h, w, _ = frames[0].shape
 
@@ -74,7 +133,7 @@ if __name__ == '__main__':
             clip = frames
 
         if clip.size == 0:
-            raise RuntimeError(f"_get_clip failed for {vidfilename}")
+            raise RuntimeError(f"_get_clip failed")
         
         clip = clip.astype(np.float32)  # (L, 352, 640, 3), float32
         clip = clip / 255.0
@@ -144,6 +203,8 @@ if __name__ == '__main__':
 
         gm_idx = game_idx_H.split('_')[1]
         vidfile = os.path.join(video_path, f'game_{gm_idx}.mp4')
+        vr = VideoReader(vidfile, ctx=cpu(0), num_threads=8)
+        audio_h5_path = os.path.join(DATA_ROOT, "data", "audio_features.h5")
 
         h5_file = h5py.File(data_path, 'r')
         data = h5_file[game_idx_H][:].astype(np.float64)
@@ -167,7 +228,7 @@ if __name__ == '__main__':
             
             local_range = [i for i in range(sf, ef)]
 
-            clipimg = get_clip(vidfile, local_range)
+            clipimg = get_clip(vr, local_range)
             clipimg = torch.from_numpy(clipimg).float() # (B*T,352,640,3)
             L,H,W,_ = clipimg.shape
 
@@ -186,10 +247,14 @@ if __name__ == '__main__':
             rois = torch.from_numpy(rois).float().cuda().permute(1,0,2,3) # (B,M,T,5)
             masks = torch.from_numpy(masks.reshape(M,B,50)).float().cuda().permute(1,0,2) # (B,M,T)
 
+            audio_energy, audio_mask = get_audio_batch(audio_h5_path, gm_idx, sf, T, B)
+            audio_energy = torch.from_numpy(audio_energy).float().cuda()
+            audio_mask = torch.from_numpy(audio_mask).float().cuda()
+
             with torch.no_grad():
 
                 with torch.autocast(device_type='cuda', dtype=torch.float16):
-                    pred = model([clipimg, rois, masks]) # (B,9,M,T)
+                    pred = model([clipimg, rois, masks, audio_energy, audio_mask]) # (B,9,M,T)
 
                 preds = pred.permute(1,2,0,3).reshape(9,M,-1).half().detach().cpu().numpy() # (9,M,B*T)
                 all_logits.append(preds)
@@ -218,7 +283,7 @@ if __name__ == '__main__':
             
             local_range = [i for i in range(sf, ef)]
 
-            clipimg = get_clip(vidfile, local_range)
+            clipimg = get_clip(vr, local_range)
             clipimg = torch.from_numpy(clipimg).float() # (B*T,352,640,3)
             L,H,W,_ = clipimg.shape
 
@@ -237,10 +302,14 @@ if __name__ == '__main__':
             rois = torch.from_numpy(rois).float().cuda().permute(1,0,2,3) # (B,M,T,5)
             masks = torch.from_numpy(masks.reshape(M,B,50)).float().cuda().permute(1,0,2) # (B,M,T)
 
+            audio_energy, audio_mask = get_audio_batch(audio_h5_path, gm_idx, sf, T, B)
+            audio_energy = torch.from_numpy(audio_energy).float().cuda()
+            audio_mask = torch.from_numpy(audio_mask).float().cuda()
+
             with torch.no_grad():
 
                 with torch.autocast(device_type='cuda', dtype=torch.float16):
-                    pred = model([clipimg, rois, masks]) # (B,9,M,T)
+                    pred = model([clipimg, rois, masks, audio_energy, audio_mask]) # (B,9,M,T)
 
                 preds = pred.permute(1,2,0,3).reshape(9,M,-1).half().detach().cpu().numpy() # (9,M,B*T)
                 all_logits.append(preds)
@@ -261,8 +330,12 @@ if __name__ == '__main__':
     model = X3D_TAAD_Baseline()
     
     ckpt = torch.load(MODEL_CHECKPOINT, map_location=torch.device('cpu'))
-    state_dict = ckpt['model_state_dict'] 
-    model.load_state_dict(state_dict, strict=True)
+    state_dict = ckpt['model_state_dict']
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    if missing:
+        print(f"[INFO] Checkpoint missing {len(missing)} keys (likely the audio branch, randomly initialized): {missing[:5]}{'...' if len(missing) > 5 else ''}")
+    if unexpected:
+        print(f"[WARN] Checkpoint has {len(unexpected)} unexpected keys: {unexpected[:5]}{'...' if len(unexpected) > 5 else ''}")
 
     model = model.to(device)
     model.eval()

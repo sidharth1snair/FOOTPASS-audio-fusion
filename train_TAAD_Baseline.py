@@ -8,7 +8,7 @@ from torch.optim.lr_scheduler import ExponentialLR, LambdaLR
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader
-from torch.cuda.amp import GradScaler
+from torch.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 
 from models.model_TAAD_baseline import X3D_TAAD_Baseline
@@ -100,7 +100,7 @@ if __name__ == '__main__':
 
     writer = SummaryWriter()
 
-    best_model_path = os.path.join(RUN_PATH, r'checkpoints\best_model.pt')
+    best_model_path = os.path.join(RUN_PATH, 'checkpoints', 'best_model.pt')
 
     ##### MODEL AND OPTIMIZER #####
 
@@ -110,9 +110,12 @@ if __name__ == '__main__':
     for param in model.parameters():
         param.requires_grad=True
 
-    x3d_decay, x3d_nodecay, head_decay, head_nodecay = [], [], [], []
+    x3d_decay, x3d_nodecay, head_decay, head_nodecay, audio_tau = [], [], [], [], []
     for name, param in model.named_parameters():
         if not param.requires_grad:
+            continue
+        if 'audio_head.tau' in name:
+            audio_tau.append(param)
             continue
         group = x3d_decay if 'x3d' in name else head_decay
         group_no = x3d_nodecay if 'x3d' in name else head_nodecay
@@ -121,14 +124,18 @@ if __name__ == '__main__':
     opt = AdamW([{'params': x3d_decay,    'lr': LR_X3D, 'weight_decay': 1e-4, 'name': 'x3d_decay'},
                  {'params': x3d_nodecay,  'lr': LR_X3D, 'weight_decay': 0.0,  'name': 'x3d_nodecay'},
                  {'params': head_decay,   'lr': LR_HEAD,'weight_decay': 1e-4, 'name': 'head_decay'},
-                 {'params': head_nodecay, 'lr': LR_HEAD,'weight_decay': 0.0,  'name': 'head_nodecay'}])
+                 {'params': head_nodecay, 'lr': LR_HEAD,'weight_decay': 0.0,  'name': 'head_nodecay'},
+                 {'params': audio_tau,    'lr': LR_HEAD * 2000, 'weight_decay': 0.0, 'name': 'audio_tau'}])
+    # Note: grid_sample's gradient w.r.t. sampling position is small-scale,
+    # so tau needs a much higher LR than the rest of the head to move at all
+    # within a reasonable number of steps (see train_audio_baseline.py prototype).
 
     class_weights = [0.05, 0.95, 0.95, 0.95, 0.95, 0.95, 0.95, 0.95, 0.95]
     class_weights = torch.tensor(class_weights, dtype=torch.float32).to(device)
 
     scheduler = LambdaLR(opt, lr_lambda=[warmup_lambda]*len(opt.param_groups))
     exposched = ExponentialLR(opt, 0.1)
-    scaler = GradScaler()
+    scaler = GradScaler('cuda')
     loss_fn = CrossEntropyLoss(reduction='none')
 
     curr_iter = 0
@@ -185,7 +192,7 @@ if __name__ == '__main__':
         # ============================
         
 
-        for batch_idx, (x_batch, roi_batch, masks, sharp_labels, dilated_labels) in enumerate(training_generator):
+        for batch_idx, (x_batch, roi_batch, masks, sharp_labels, dilated_labels, audio_energy, audio_mask) in enumerate(training_generator):
 
             B,_,T,H,W = x_batch.shape
             _,M,_,_ = roi_batch.shape
@@ -199,11 +206,13 @@ if __name__ == '__main__':
             roi_batch = roi_batch.to(device, non_blocking=True).float() # (B,M,T,5)
             masks = masks.to(device, non_blocking=True).float() # (B,M,T)
             dilated_labels = dilated_labels.to(device, non_blocking=True).long() # (B,M,T)
+            audio_energy = audio_energy.to(device, non_blocking=True).float() # (B,2,T+2*margin)
+            audio_mask = audio_mask.to(device, non_blocking=True).float() # (B,)
 
             expanded_weights = (class_weights[dilated_labels]).float() # (B,M,T)
 
             with torch.autocast(device_type='cuda', dtype=torch.float16):
-                pred = model([x_batch, roi_batch, masks]) # (B,9,M,T)
+                pred = model([x_batch, roi_batch, masks, audio_energy, audio_mask]) # (B,9,M,T)
                 loss = (loss_fn(pred, dilated_labels)*masks*expanded_weights).mean() # (B,M,T).mean()
                 total_loss += loss.item()
 
@@ -251,7 +260,7 @@ if __name__ == '__main__':
    
             curr_iter += 1
 
-        current_model_path = os.path.join(RUN_PATH, f'checkpoints\curr_model_{epoch}.pt')
+        current_model_path = os.path.join(RUN_PATH, 'checkpoints', f'curr_model_{epoch}.pt')
         current_training_loss = loss
         torch.save({
                     'epoch': epoch,
@@ -278,7 +287,7 @@ if __name__ == '__main__':
             model.eval()
             val_loss = 0
 
-            for batch_idx, (x_batch, roi_batch, masks, sharp_labels, dilated_labels) in enumerate(validation_generator):
+            for batch_idx, (x_batch, roi_batch, masks, sharp_labels, dilated_labels, audio_energy, audio_mask) in enumerate(validation_generator):
 
                 B,_,T,H,W = x_batch.shape
                 _,M,_,_ = roi_batch.shape
@@ -288,11 +297,13 @@ if __name__ == '__main__':
                 roi_batch = roi_batch.to(device, non_blocking=True).float() # (B,M,T,5)
                 masks = masks.to(device, non_blocking=True).float() # (B,M,T)
                 dilated_labels = dilated_labels.to(device, non_blocking=True).long() # (B,M,T)
+                audio_energy = audio_energy.to(device, non_blocking=True).float() # (B,2,T+2*margin)
+                audio_mask = audio_mask.to(device, non_blocking=True).float() # (B,)
 
                 expanded_weights = (class_weights[dilated_labels]).float() # (B,M,T)
 
                 with torch.autocast(device_type='cuda', dtype=torch.float16):
-                    pred = model([x_batch, roi_batch, masks]) # (B,9,M,T)
+                    pred = model([x_batch, roi_batch, masks, audio_energy, audio_mask]) # (B,9,M,T)
                     vloss = (loss_fn(pred, dilated_labels)*masks*expanded_weights).mean() # (B,M,T).mean()
                     val_loss += vloss.item()
 
@@ -335,10 +346,10 @@ if __name__ == '__main__':
             f"    Val Precision -> {prec_str}\n"
             f"    Val Recall    -> {rec_str}")
 
-        with open(os.path.join(RUN_PATH, r'check', f'val_preds_epoch_{epoch}.npy'), 'wb') as f :
+        with open(os.path.join(RUN_PATH, 'check', f'val_preds_epoch_{epoch}.npy'), 'wb') as f :
             np.save(f, val_preds)
 
-        with open(os.path.join(RUN_PATH, r'check', f'val_labels_epoch_{epoch}.npy'), 'wb') as f :
+        with open(os.path.join(RUN_PATH, 'check', f'val_labels_epoch_{epoch}.npy'), 'wb') as f :
             np.save(f, val_labels)
 
     writer.flush()

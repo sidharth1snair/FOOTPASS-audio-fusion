@@ -16,6 +16,8 @@ from decord import cpu
 
 import albumentations as A
 
+from models.audio_fusion import TAAD_AUDIO_MARGIN
+
 
 class TAAD_Dataset(Dataset):
 
@@ -148,6 +150,57 @@ class TAAD_Dataset(Dataset):
             raise RuntimeError(f"_get_clip failed for {vidfilename}")
 
         return clip
+
+
+    def _get_audio_window(self, gm_idx, sf, ef, margin=TAAD_AUDIO_MARGIN):
+
+        """
+        Returns (audio_energy (2, ef-sf+2*margin) float32, audio_mask float scalar).
+        audio_mask is 0 (and audio_energy all zeros) whenever no audio features
+        exist for this game yet -- lets training run over the whole dataset
+        while audio has only been extracted for a subset of games so far.
+        """
+
+        T = (ef - sf) + 2 * margin
+        audio_energy = np.zeros((2, T), dtype=np.float32)
+        audio_mask = 0.0
+
+        audio_path = os.path.join(self.data_root, "data", "audio_features.h5")
+        if not os.path.exists(audio_path):
+            return audio_energy, audio_mask
+
+        game_audio_key = f"game_{gm_idx}"
+
+        try:
+            with h5py.File(audio_path, 'r') as af:
+                if game_audio_key not in af:
+                    return audio_energy, audio_mask
+
+                crowd = af[game_audio_key]['crowd_energy'][:]
+                comm = af[game_audio_key]['commentary_energy'][:]
+
+            n_frames_audio = len(crowd)
+            lo, hi = sf - margin, ef + margin
+
+            lo_c, hi_c = max(lo, 0), min(hi, n_frames_audio)
+            crowd_seg = crowd[lo_c:hi_c]
+            comm_seg = comm[lo_c:hi_c]
+
+            if crowd_seg.size == 0:
+                return audio_energy, audio_mask
+
+            pad_before, pad_after = lo_c - lo, hi - hi_c
+            if pad_before > 0 or pad_after > 0:
+                crowd_seg = np.pad(crowd_seg, (pad_before, pad_after), mode='edge')
+                comm_seg = np.pad(comm_seg, (pad_before, pad_after), mode='edge')
+
+            audio_energy = np.stack([crowd_seg, comm_seg], axis=0).astype(np.float32)
+            audio_mask = 1.0
+
+        except (OSError, KeyError):
+            pass
+
+        return audio_energy, audio_mask
 
 
     def _dilate_labels(self, all_cls):
@@ -283,12 +336,12 @@ class TAAD_Dataset(Dataset):
                         tracklet_mask.append(0.0)
                         tracklet_class.append(0)
                     else :
-                        curr_roi = np.array([tidx, tlx, tly, brx, bry]) 
+                        curr_roi = np.array([tidx, tlx, tly, brx, bry])
                         tracklet_mask.append(1.0)
                         tracklet_class.append(bbox[0,CLS])
-                    
-                    tracklet_roi.append(curr_roi)   
-                    
+
+                    tracklet_roi.append(curr_roi)
+
                 else :
 
                     tracklet_roi.append(np.array([tidx, 100, 100, 200, 200])) # Dummy bbox - Mask will zero-out features extracted from it.
@@ -356,11 +409,15 @@ class TAAD_Dataset(Dataset):
         all_sharp_cls = torch.from_numpy(all_sharp_cls).long()
         all_dilated_cls = torch.from_numpy(all_dilated_cls).long()
 
+        audio_energy, audio_mask = self._get_audio_window(gm_idx, sf, ef)
+
         return_items = []
         return_items.append(torch.from_numpy(videoclip).permute(3,0,1,2)) # (T,H,W,3) to (3,T,H,W) for input in X3D
         return_items.append(all_rois)
         return_items.append(all_masks)
         return_items.append(all_sharp_cls)
         return_items.append(all_dilated_cls)
+        return_items.append(torch.from_numpy(audio_energy))              # (2, T+2*margin)
+        return_items.append(torch.tensor(audio_mask, dtype=torch.float32))
 
         return return_items
