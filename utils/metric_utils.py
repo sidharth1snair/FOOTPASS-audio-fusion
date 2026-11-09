@@ -166,9 +166,14 @@ def post_processing_TAAD_preds_and_export(nms_window, root_path, save_path, h5fi
 
     for kidx, k in enumerate(keys):
 
+        pred_file = os.path.join(root_path, r"TAAD_predictions", f'avg_logits_{k}.npy')
+        if not os.path.exists(pred_file):
+            print(f"[SKIP] no TAAD predictions for {k}")
+            continue
+
         data = h5_file[k][:].astype(np.float64)
 
-        with open(os.path.join(root_path, r"TAAD_predictions", f'avg_logits_{k}.npy'), 'rb') as f:
+        with open(pred_file, 'rb') as f:
             preds = np.load(f).astype(np.float32)  # (9,M,T)
         preds = np_softmax(preds)
 

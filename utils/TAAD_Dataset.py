@@ -269,8 +269,11 @@ class TAAD_Dataset(Dataset):
 
         #### FETCH DATA ####
 
-        self.h5_file = h5py.File(self.h5_path, 'r')
-        data = self.h5_file[curr_key][:].astype(np.float64)
+        # Open-and-close per sample (not a persistent self.h5_file) so the
+        # handle and its internal HDF5 caches don't pile up across the
+        # thousands of samples each DataLoader worker processes over training.
+        with h5py.File(self.h5_path, 'r') as h5f:
+            data = h5f[curr_key][:].astype(np.float64)
         data = data[(data[:,FRAME]>=kept_frame_range[0])&(data[:,FRAME]<=kept_frame_range[-1])].copy() # Keep only the relevant slice of the tracklets
 
 

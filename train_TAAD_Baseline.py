@@ -43,6 +43,9 @@ def parse_args():
     p.add_argument("--nms_window", type=int, default=15)
     p.add_argument("--delta", type=int, default=15)
 
+    p.add_argument("--resume_path", type=str, default="", help="Checkpoint to resume training from (e.g. a previous session's curr_model_N.pt)")
+    p.add_argument("--fixed_tau", action="store_true", help="Ablation: keep the audio tau at 0 (no learned audio delay)")
+
     return p.parse_args()
 
 
@@ -110,6 +113,10 @@ if __name__ == '__main__':
     for param in model.parameters():
         param.requires_grad=True
 
+    if args.fixed_tau:
+        model.audio_head.tau.requires_grad_(False)
+        print("[INFO] Ablation: audio tau fixed at 0")
+
     x3d_decay, x3d_nodecay, head_decay, head_nodecay, audio_tau = [], [], [], [], []
     for name, param in model.named_parameters():
         if not param.requires_grad:
@@ -124,8 +131,8 @@ if __name__ == '__main__':
     opt = AdamW([{'params': x3d_decay,    'lr': LR_X3D, 'weight_decay': 1e-4, 'name': 'x3d_decay'},
                  {'params': x3d_nodecay,  'lr': LR_X3D, 'weight_decay': 0.0,  'name': 'x3d_nodecay'},
                  {'params': head_decay,   'lr': LR_HEAD,'weight_decay': 1e-4, 'name': 'head_decay'},
-                 {'params': head_nodecay, 'lr': LR_HEAD,'weight_decay': 0.0,  'name': 'head_nodecay'},
-                 {'params': audio_tau,    'lr': LR_HEAD * 2000, 'weight_decay': 0.0, 'name': 'audio_tau'}])
+                 {'params': head_nodecay, 'lr': LR_HEAD,'weight_decay': 0.0,  'name': 'head_nodecay'}]
+                + ([{'params': audio_tau, 'lr': LR_HEAD * 2000, 'weight_decay': 0.0, 'name': 'audio_tau'}] if audio_tau else []))
     # Note: grid_sample's gradient w.r.t. sampling position is small-scale,
     # so tau needs a much higher LR than the rest of the head to move at all
     # within a reasonable number of steps (see train_audio_baseline.py prototype).
@@ -141,6 +148,22 @@ if __name__ == '__main__':
     curr_iter = 0
     val_iter = 0
     best_validation_loss_value = 1e6
+    start_epoch = 1
+
+    if args.resume_path and os.path.exists(args.resume_path):
+        print(f"[INFO] Loading checkpoint from {args.resume_path}")
+        checkpoint = torch.load(args.resume_path, map_location=device)
+        missing, unexpected = model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+        if missing:
+            print(f"[INFO] {len(missing)} keys missing from checkpoint (newly initialized): {missing[:5]}{'...' if len(missing) > 5 else ''}")
+        if unexpected:
+            print(f"[WARN] {len(unexpected)} unexpected keys in checkpoint: {unexpected[:5]}{'...' if len(unexpected) > 5 else ''}")
+        # Optimizer state is intentionally not restored -- the audio_tau param
+        # group (and its distinct LR) may not exist in an older checkpoint's
+        # optimizer state, so a fresh optimizer avoids a shape/key mismatch.
+        start_epoch = checkpoint['epoch'] + 1
+        best_validation_loss_value = checkpoint.get('loss', 1e6)
+        print(f"[INFO] Resuming training from epoch {start_epoch}")
 
     # ============================
     # GLOBAL LOOP
@@ -151,7 +174,7 @@ if __name__ == '__main__':
     model.train()
     opt.zero_grad() # set_to_none=True
 
-    for epoch in range(1, N_EPOCHS + 1):
+    for epoch in range(start_epoch, N_EPOCHS + 1):
 
         model.train()
 
@@ -193,6 +216,17 @@ if __name__ == '__main__':
         
 
         for batch_idx, (x_batch, roi_batch, masks, sharp_labels, dilated_labels, audio_energy, audio_mask) in enumerate(training_generator):
+
+            if batch_idx == 0 or (batch_idx + 1) % 10 == 0:
+                try:
+                    import psutil
+                    ram_gb = psutil.Process().memory_info().rss / (1024**3)
+                except ImportError:
+                    ram_gb = float('nan')
+                gpu_alloc_gb = torch.cuda.memory_allocated() / (1024**3) if use_cuda else 0.0
+                gpu_reserved_gb = torch.cuda.memory_reserved() / (1024**3) if use_cuda else 0.0
+                print(f"[heartbeat] epoch {epoch} batch {batch_idx+1}/{len(training_generator)} "
+                      f"| proc RAM {ram_gb:.2f} GB | GPU alloc {gpu_alloc_gb:.2f} GB / reserved {gpu_reserved_gb:.2f} GB", flush=True)
 
             B,_,T,H,W = x_batch.shape
             _,M,_,_ = roi_batch.shape

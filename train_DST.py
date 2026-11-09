@@ -41,7 +41,14 @@ def parse_args():
 
     p.add_argument("--delta", type=int, default=15)
 
-    return p.parse_args()
+    p.add_argument("--init_checkpoint", type=str, default=None, help="Start a NEW run from these DST weights (e.g. retrain on more halftimes); epochs, optimizer and LR schedule start fresh")
+    p.add_argument("--resume_path", type=str, default=None, help="CONTINUE an interrupted run: restores weights, optimizer and epoch from this checkpoint")
+    p.add_argument("--lr_decay_epochs", type=str, default="3,6,8", help="Comma-separated epochs after which the LR is multiplied by 0.1 (default tuned for all 96 halftimes)")
+
+    args = p.parse_args()
+    if args.init_checkpoint and args.resume_path:
+        p.error("use either --init_checkpoint or --resume_path, not both")
+    return args
 
 if __name__ == '__main__':
 
@@ -62,6 +69,8 @@ if __name__ == '__main__':
     DATA_ROOT = args.data_root
     RUN_PATH = args.run_path
     DELTA = args.delta
+    LR_DECAY_EPOCHS = [int(e) for e in args.lr_decay_epochs.split(",") if e.strip()]
+    print(f"[INFO] LR x0.1 after epochs {LR_DECAY_EPOCHS}")
 
     os.makedirs(os.path.join(RUN_PATH, "checkpoints"), exist_ok=True)
     os.makedirs(os.path.join(RUN_PATH, "check"), exist_ok=True)
@@ -103,7 +112,7 @@ if __name__ == '__main__':
 
     writer = SummaryWriter()
 
-    best_model_path = os.path.join(RUN_PATH, r'checkpoints\best_model.pt')
+    best_model_path = os.path.join(RUN_PATH, 'checkpoints', 'best_model.pt')
 
 
     ##### DATASET ######
@@ -130,6 +139,11 @@ if __name__ == '__main__':
                               dropout=DROPOUT)
 
     model = model.to(device)
+
+    if args.init_checkpoint:
+        ckpt = torch.load(args.init_checkpoint, map_location=device, weights_only=False)
+        model.load_state_dict(ckpt['model_state_dict'])
+        print(f"[INFO] Initialised DST weights from {args.init_checkpoint} (trained {ckpt.get('epoch', '?')} epochs); new run starts at epoch 1")
 
     for param in model.parameters():
         param.requires_grad=True
@@ -158,6 +172,16 @@ if __name__ == '__main__':
     curr_iter = 0
     val_iter = 0
     best_validation_loss_value = 1e6
+    start_epoch = 1
+
+    if args.resume_path:
+        # Loaded after the schedulers so the saved (already warmed-up / decayed) learning rates are kept
+        ckpt = torch.load(args.resume_path, map_location=device, weights_only=False)
+        model.load_state_dict(ckpt['model_state_dict'])
+        opt.load_state_dict(ckpt['optimizer_state_dict'])
+        start_epoch = ckpt['epoch'] + 1
+        best_validation_loss_value = ckpt.get('best_val_loss', best_validation_loss_value)
+        print(f"[INFO] Resuming training from epoch {start_epoch} ({args.resume_path})")
 
     # ============================
     # GLOBAL LOOP
@@ -168,7 +192,7 @@ if __name__ == '__main__':
     model.train()
     opt.zero_grad() # set_to_none=True
 
-    for epoch in range(1, N_EPOCHS + 1):
+    for epoch in range(start_epoch, N_EPOCHS + 1):
 
         model.train()
 
@@ -262,18 +286,12 @@ if __name__ == '__main__':
  
             print(f'Train Epoch: {epoch:>4} - {(batch_idx+1):>4} / {N_batch_train} \tAction CE Loss : {(action_loss.item()):.7f} \tRoleID CE Loss : {(roleid_loss.item()):.7f} \tFrame CE Loss : {(frame_loss.item()):.7f}\n') 
             
-        current_model_path = os.path.join(RUN_PATH, f'checkpoints\curr_model_{epoch}.pt')
+        current_model_path = os.path.join(RUN_PATH, 'checkpoints', f'curr_model_{epoch}.pt')
         current_training_loss = loss
-        torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': opt.state_dict(),
-                    'loss': current_training_loss,
-                    }, current_model_path)
 
         writer.add_scalar('TOTAL loss per epoch / train', total_loss/len(training_generator), epoch)
 
-        if epoch in [3,6,8]:
+        if epoch in LR_DECAY_EPOCHS:
             exposched.step()
 
         # ============================
@@ -392,6 +410,15 @@ if __name__ == '__main__':
                 print(f'{time.ctime()} - Best model saved ! \n')
 
                 best_validation_loss_value = val_loss
+
+        # Saved after validation (and after the epoch's LR decay) so --resume_path continues exactly from here
+        torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': opt.state_dict(),
+                    'loss': current_training_loss,
+                    'best_val_loss': best_validation_loss_value,
+                    }, current_model_path)
 
 
         with open(os.path.join(RUN_PATH, r'check', f'val_preds_epoch_{epoch}.pkl'), 'wb') as f :

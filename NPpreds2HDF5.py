@@ -42,7 +42,10 @@ if __name__ == '__main__':
     with h5py.File(SAVE_FILENAME, "w") as h5f:
         for k in tqdm(list_halftimes) :
             path = os.path.join(PRED_PATH, f'avg_logits_{k}.npy')
-            data = np.load(path)  
+            if not os.path.exists(path):
+                print(f"[SKIP] no TAAD predictions for {k}")
+                continue
+            data = np.load(path)
             h5f.create_dataset(name=k,data=data)
     
     print(f'File {SAVE_FILENAME} saved')

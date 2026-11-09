@@ -31,6 +31,8 @@ def parse_args():
     p.add_argument("--delta", type=int, default=12)
 
     p.add_argument("--checkpoint_path", type=str, default=os.path.join("runs", "audio_baseline_best.pt"))
+    p.add_argument("--fixed_tau", action="store_true", help="Ablation: keep tau at 0 (no learned audio delay)")
+    p.add_argument("--seed", type=int, default=0)
 
     return p.parse_args()
 
@@ -170,14 +172,19 @@ if __name__ == '__main__':
     print(f"[INFO] Train games: {train_games}")
     print(f"[INFO] Val games:   {val_games}")
 
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
     model = AudioOnlyEventDetector(max_abs_tau=args.max_abs_tau).to(device)
 
-    tau_params = [model.head.tau]
     other_params = [p for n, p in model.named_parameters() if n != 'head.tau']
-    opt = AdamW([
-        {'params': other_params, 'lr': args.lr, 'weight_decay': 1e-4},
-        {'params': tau_params, 'lr': args.lr_tau, 'weight_decay': 0.0},
-    ])
+    groups = [{'params': other_params, 'lr': args.lr, 'weight_decay': 1e-4}]
+    if args.fixed_tau:
+        model.head.tau.requires_grad_(False)
+        print("[INFO] Ablation: tau fixed at 0")
+    else:
+        groups.append({'params': [model.head.tau], 'lr': args.lr_tau, 'weight_decay': 0.0})
+    opt = AdamW(groups)
 
     # Median-frequency balancing across the 8 action classes, so rare classes
     # (e.g. tackle: ~30 events) pull as much gradient as common ones

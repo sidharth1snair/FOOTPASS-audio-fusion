@@ -32,7 +32,11 @@ class DST_Dataset(Dataset):
             self.logits_h5_path = os.path.join(self.data_root, "TAAD_h5", "preds_train.h5")
             self.data_h5_path = os.path.join(self.data_root, "data", "train_tactical_data.h5")
             tmp_h5_file = h5py.File(self.data_h5_path, 'r')
-            self.list_gmids = list(tmp_h5_file.keys())
+            # Train on whichever halftimes have TAAD predictions (lets DST train on a subset)
+            with h5py.File(self.logits_h5_path, 'r') as lf:
+                available = set(lf.keys())
+            self.list_gmids = [k for k in tmp_h5_file.keys() if k in available]
+            print(f"[INFO] DST training on {len(self.list_gmids)} halftimes with TAAD predictions")
 
             self.picklist = []
             for i in range(self.repeat):
