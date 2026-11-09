@@ -51,7 +51,6 @@ kaggle_upload_hpi/
 TAAD_predictions_ablation_tau0/
 demo_outputs/
 playbyplay_DST_val_audio14*.json
-data/whisper_val.json
 
 # Thesis, slides and personal files (kept outside the code repository)
 thesis/

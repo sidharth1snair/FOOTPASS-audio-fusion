@@ -5,8 +5,7 @@ Reference (independent of audio): every ground-truth SHOT of the 3 val games; TA
 A shot is covered when it falls inside a clip of the reel. Clip precision = clips containing a real shot.
 
 Events : TAAD@0.70, and TAAD + HPI v6 + one-action rule.
-Audio  : none | energy (default) | energy with tau = 0 | energy from the WRONG game | energy shifted 60 s |
-         PANNs shot detector (logistic regression trained on the other 2 val games).
+Audio  : none | energy (default) | energy with tau = 0 | energy from the WRONG game | energy shifted 60 s.
 Weights and reel length are the script's defaults, fixed before looking at these results.
 
 Usage:
@@ -17,10 +16,8 @@ import json
 import os
 from types import SimpleNamespace
 
-import h5py
 import numpy as np
 
-from audio_probe_panns import logreg
 from generate_highlights import group_moments, load_excitement_signal, load_tau_seconds, score_events, select_moments
 from hpi_exclusivity import apply_rule
 
@@ -35,7 +32,6 @@ def parse_args():
     p.add_argument("--run", default=os.path.join("runs_hidden", "v6_w250"))
     p.add_argument("--hpi_thr", type=float, default=0.2)
     p.add_argument("--audio_h5", default=os.path.join("data", "audio_features.h5"))
-    p.add_argument("--panns", default=os.path.join("data", "panns_raw.h5"))
     p.add_argument("--checkpoint", default=os.path.join("runs", "TAAD_audiofusion_kaggle", "checkpoints", "curr_model_40.pt"))
     p.add_argument("--n_boot", type=int, default=2000)
     p.add_argument("--out", default=os.path.join("runs_hidden", "highlight_comparison.json"))
@@ -51,28 +47,6 @@ def rows_for(game, taad, hpi, hpi_thr):
             tk, hk = apply_rule(tk, hk, "global", 12)
         rows += [(int(e[0]), int(e[1]), int(e[2]), int(e[3]), float(e[4])) for e in tk + hk]
     return sorted(rows)
-
-
-def panns_shot_signal(a, shots):
-    """Leave-one-game-out shot detector on PANNs embeddings -> per-frame excitement, on the same scale as energy."""
-    pan = h5py.File(a.panns, "r")
-    X, Y = {}, {}
-    for g in GAMES:
-        e = pan[f"game_{g}"]["emb"][:].astype(np.float32)
-        fr = np.arange(len(e)) * 10
-        s = np.sort(shots[g])
-        i = np.clip(np.searchsorted(s, fr), 1, len(s) - 1)
-        X[g], Y[g] = e, (np.minimum(np.abs(fr - s[i - 1]), np.abs(fr - s[i])) <= 50).astype(np.float32)
-    out = {}
-    for g in GAMES:
-        tr = [x for x in GAMES if x != g]
-        P = np.concatenate([X[x] for x in tr])
-        mu = P.mean(0)
-        vt = np.linalg.svd(P[::4] - mu, full_matrices=False)[2][:64].T
-        z = logreg((P - mu) @ vt, np.concatenate([Y[x] for x in tr]), (X[g] - mu) @ vt)
-        z = (z - np.median(z)) / (1.4826 * np.median(np.abs(z - np.median(z))) + 1e-9)
-        out[g] = np.repeat(z, 10)
-    return out
 
 
 def reel(rows, tau, exc, weight, target=180.0):
@@ -92,14 +66,12 @@ def main():
     tau = load_tau_seconds(a.checkpoint, 25)
     zero = np.zeros_like(tau)
     energy = {g: load_excitement_signal(a.audio_h5, g) for g in GAMES}
-    panns = panns_shot_signal(a, shots)
 
     audio = {"no audio": lambda g: (None, tau, 0.0),
              "energy + tau": lambda g: (energy[g], tau, 2.0),
              "energy, tau = 0": lambda g: (energy[g], zero, 2.0),
              "energy, WRONG game": lambda g: (energy[GAMES[(GAMES.index(g) + 1) % 3]], tau, 2.0),
-             "energy, shifted 60 s": lambda g: (np.roll(energy[g], 1500), tau, 2.0),
-             "PANNs shot detector": lambda g: (panns[g], tau, 2.0)}
+             "energy, shifted 60 s": lambda g: (np.roll(energy[g], 1500), tau, 2.0)}
     res, flags = {}, {}
     print(f"\n{'events':16s} {'audio':22s} {'shots covered':>15s} {'clips':>6s} {'clips with shot':>16s} {'seconds':>8s}")
     for ename, src in [("TAAD", None), ("TAAD+HPI+rule", hpi)]:
@@ -125,7 +97,6 @@ def main():
              (("TAAD+HPI+rule", "energy + tau"), ("TAAD+HPI+rule", "no audio")),
              (("TAAD+HPI+rule", "energy + tau"), ("TAAD+HPI+rule", "energy, WRONG game")),
              (("TAAD+HPI+rule", "energy + tau"), ("TAAD+HPI+rule", "energy, tau = 0")),
-             (("TAAD+HPI+rule", "PANNs shot detector"), ("TAAD+HPI+rule", "no audio")),
              (("TAAD+HPI+rule", "no audio"), ("TAAD", "no audio"))]
     res["bootstrap"] = {}
     for x, y in pairs:

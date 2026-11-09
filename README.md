@@ -13,7 +13,7 @@ About one event in five is performed by a player with **no bounding box** (repla
 1. **Hidden-Player event Inference (HPI)**: a 0.44 M-parameter model (Transformer across players + bidirectional GRU over 10 s) that predicts actions of hidden players from tracking data and the context of visible players.
 2. **A one-action-at-a-time rule**: removes simultaneous predictions across all players, with no training.
 3. **An Event Verifier**: a tracking-only model that checks each TAAD prediction against the movement of the named player and rescores it, measured against a per-class calibration baseline.
-4. **An audio branch** with a learned per-class delay, and a controlled study of audio (wrong-match and time-shifted audio, PANNs embeddings, Whisper transcripts).
+4. **An audio branch** with a learned per-class delay, and a controlled study of audio with wrong-match and time-shifted controls.
 5. **A highlight generator** that ranks moments by class, confidence and audio excitement.
 
 ---
@@ -51,7 +51,7 @@ Internal test set: 6 held-out matches, scored once with every setting fixed befo
 | `verify_hidden_v2.py`, `show_hpi_results.py`, `hpi_final_test.py` | Evaluation, controls (shifted / shuffled inputs) and the one-time test scoring |
 | `event_verifier.py` | Event Verifier: `train`, then `fuse` (dev-set logistic regression, calibration baseline, controls, `--test`) |
 | `error_breakdown.py` | Groups the remaining wrong predictions (wrong player / team / class, timing, nothing there) |
-| `audio_contribution_test.py`, `audio_probe_panns.py`, `whisper_probe.py`, `goal_audio_test.py`, `score_tau0.py` | Audio tests with controls |
+| `audio_contribution_test.py`, `goal_audio_test.py`, `score_tau0.py` | Audio tests with controls |
 | `generate_highlights.py`, `highlight_comparison.py`, `reel_goal_test.py` | Highlight reels and their shot / goal coverage |
 | `annotate_events.py`, `make_thesis_figures.py`, `make_results_table.py` | Demo videos, thesis figures and tables |
 
