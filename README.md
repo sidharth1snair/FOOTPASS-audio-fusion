@@ -26,7 +26,7 @@ Internal test set: 6 held-out matches, scored once with every setting fixed befo
 |---|---|---|---|
 | TAAD alone | 0.471 | 0.338 | 2.2% |
 | TAAD + HPI + rule | 0.543 ± 0.001 | 0.400 ± 0.003 | 39.4 ± 3.0% |
-| + per-class calibration | 0.587 ± 0.003 | 0.462 ± 0.010 | |
+| + per-class calibration | 0.587 ± 0.003 | 0.462 ± 0.010 | 41.5 ± 3.9% |
 | **+ Event Verifier** | **0.699 ± 0.006** | **0.549 ± 0.018** | 42.1 ± 3.9% |
 
 - The Verifier adds about +0.11 F1 over calibration alone (95% bootstrap interval +0.10 to +0.12 in every seed). Shifting its input by 5 s or shuffling the players makes F1 collapse to 0.22.
