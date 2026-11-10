@@ -67,12 +67,12 @@ h2 { font-size: clamp(24px, 3.4vw, 34px); letter-spacing: -.01em; margin: 0 0 8p
 .figure { background: #fff; border-radius: 12px; padding: 10px; border: 1px solid var(--line); }
 figcaption { font-size: 13.5px; color: var(--muted); margin-top: 10px; }
 
-.flow { display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap; margin-bottom: 26px; }
-.node { flex: 1 1 140px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; text-align: center; font-size: 14px; }
+.flow { display: grid; grid-template-columns: repeat(6, 1fr); gap: 26px; margin-bottom: 26px; }
+.node { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 10px; text-align: center; font-size: 13.5px; }
+.node:not(:last-child)::after { content: "→"; position: absolute; right: -20px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 18px; }
 .node b { display: block; font-size: 15px; color: var(--text); }
 .node small { color: var(--muted); }
 .node.key { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.arrow { align-self: center; color: var(--muted); font-size: 22px; }
 
 .video { border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #0f1720; }
 .legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 14px; color: var(--muted); margin-top: 12px; }
@@ -90,10 +90,11 @@ ul.clean li { margin: 6px 0; }
 pre { background: #0f1720; color: #d1fae5; padding: 16px; border-radius: 12px; overflow-x: auto; font-size: 13px; }
 footer { padding: 48px 0 40px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); margin-top: 64px; }
 
-@media (max-width: 820px) {
+@media (max-width: 900px) {
   .stats { grid-template-columns: 1fr 1fr; }
   .grid2, .grid3 { grid-template-columns: 1fr; }
-  .arrow { display: none; }
+  .flow { grid-template-columns: 1fr; gap: 26px; max-width: 420px; margin-left: auto; margin-right: auto; }
+  .node:not(:last-child)::after { content: "↓"; right: auto; left: 50%; top: auto; bottom: -24px; transform: translateX(-50%); }
   header.hero { padding: 52px 0 60px; }
 }
 </style>
@@ -161,11 +162,11 @@ footer { padding: 48px 0 40px; color: var(--muted); font-size: 14px; border-top:
   <h2>Methodology</h2>
   <p class="sub">Each source of information gets a clear job: video for visible players, tracking data for hidden players and for checking detections, and audio for judging importance.</p>
   <div class="flow">
-    <div class="node"><b>Broadcast video</b><small>+ player boxes</small></div><div class="arrow">→</div>
-    <div class="node"><b>TAAD</b><small>visual detector with audio branch</small></div><div class="arrow">→</div>
-    <div class="node key"><b>Event Verifier</b><small>checks each detection against tracking</small></div><div class="arrow">→</div>
-    <div class="node key"><b>HPI</b><small>adds hidden-player events</small></div><div class="arrow">→</div>
-    <div class="node"><b>One-action rule</b><small>one player acts at a time</small></div><div class="arrow">→</div>
+    <div class="node"><b>Broadcast video</b><small>+ player boxes</small></div>
+    <div class="node"><b>TAAD</b><small>visual detector with audio branch</small></div>
+    <div class="node key"><b>Event Verifier</b><small>checks each detection against tracking</small></div>
+    <div class="node key"><b>HPI</b><small>adds hidden-player events</small></div>
+    <div class="node"><b>One-action rule</b><small>one player acts at a time</small></div>
     <div class="node"><b>Highlight reel</b><small>ranked with audio excitement</small></div>
   </div>
   <div class="grid3">
