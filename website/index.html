@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seeing the Unseen Player</title>
+<meta name="description" content="Audio-visual action spotting and highlight generation for soccer broadcasts: finding the actions of players the camera does not show.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%2310b981'/%3E%3Ccircle cx='32' cy='32' r='10' fill='white'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f7f8fa; --surface: #ffffff; --text: #111827; --muted: #4b5563; --line: #e5e7eb;
+  --accent: #059669; --accent-soft: #d1fae5; --gold: #d97706; --red: #dc2626; --blue: #2563eb;
+  --hero1: #064e3b; --hero2: #0f766e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1117; --surface: #121a23; --text: #e5e7eb; --muted: #9ca3af; --line: #1f2a37;
+    --accent: #34d399; --accent-soft: #064e3b; --gold: #fbbf24; --red: #f87171; --blue: #60a5fa;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1117; --surface: #121a23; --text: #e5e7eb; --muted: #9ca3af; --line: #1f2a37;
+  --accent: #34d399; --accent-soft: #064e3b; --gold: #fbbf24; --red: #f87171; --blue: #60a5fa;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
+a { color: var(--accent); }
+img, video { max-width: 100%; display: block; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+
+nav { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+nav .wrap { display: flex; align-items: center; gap: 18px; height: 56px; overflow-x: auto; white-space: nowrap; }
+nav .brand { font-weight: 800; color: var(--text); text-decoration: none; margin-right: auto; }
+nav a.l { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; }
+nav a.l:hover { color: var(--accent); }
+
+header.hero { background: linear-gradient(135deg, var(--hero1), var(--hero2)); color: #ecfdf5; padding: 72px 0 64px; position: relative; overflow: hidden; }
+header.hero::after { content: ""; position: absolute; right: -120px; top: -120px; width: 420px; height: 420px; border: 2px solid rgba(255,255,255,.12); border-radius: 50%; }
+.eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 12px; font-weight: 700; opacity: .8; }
+h1 { font-size: clamp(30px, 5vw, 52px); line-height: 1.1; margin: 12px 0 16px; letter-spacing: -.02em; }
+.hero p.lead { font-size: clamp(16px, 2.2vw, 20px); max-width: 720px; opacity: .92; margin: 0 0 22px; }
+.byline { font-size: 14px; opacity: .85; margin-bottom: 26px; }
+.btns { display: flex; flex-wrap: wrap; gap: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; border-radius: 10px; font-weight: 600; text-decoration: none; font-size: 15px; }
+.btn.primary { background: #ecfdf5; color: #064e3b; }
+.btn.ghost { border: 1px solid rgba(255,255,255,.5); color: #ecfdf5; }
+
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: -36px; position: relative; z-index: 2; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; box-shadow: 0 6px 20px rgba(0,0,0,.06); }
+.stat b { display: block; font-size: 28px; letter-spacing: -.02em; color: var(--accent); }
+.stat span { font-size: 13.5px; color: var(--muted); }
+
+section { padding: 64px 0 8px; }
+h2 { font-size: clamp(24px, 3.4vw, 34px); letter-spacing: -.01em; margin: 0 0 8px; }
+.sub { color: var(--muted); max-width: 760px; margin: 0 0 28px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.card h3 { margin: 0 0 6px; font-size: 18px; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; }
+.tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); margin-bottom: 10px; }
+.figure { background: #fff; border-radius: 12px; padding: 10px; border: 1px solid var(--line); }
+figcaption { font-size: 13.5px; color: var(--muted); margin-top: 10px; }
+
+.flow { display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap; margin-bottom: 26px; }
+.node { flex: 1 1 140px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; text-align: center; font-size: 14px; }
+.node b { display: block; font-size: 15px; color: var(--text); }
+.node small { color: var(--muted); }
+.node.key { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.arrow { align-self: center; color: var(--muted); font-size: 22px; }
+
+.video { border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #0f1720; }
+.legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 14px; color: var(--muted); margin-top: 12px; }
+.dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; margin-right: 6px; }
+
+.tbl { width: 100%; border-collapse: collapse; font-size: 15px; background: var(--surface); border-radius: 12px; overflow: hidden; }
+.tbl th, .tbl td { padding: 12px 14px; border-bottom: 1px solid var(--line); text-align: right; }
+.tbl th:first-child, .tbl td:first-child { text-align: left; }
+.tbl thead th { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); background: color-mix(in srgb, var(--surface) 70%, var(--bg)); }
+.tbl tr.best td { font-weight: 700; color: var(--accent); }
+.tblwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.note { border-left: 4px solid var(--gold); background: var(--surface); padding: 14px 18px; border-radius: 0 10px 10px 0; color: var(--muted); font-size: 15px; margin-top: 18px; }
+ul.clean { margin: 0; padding-left: 20px; color: var(--muted); }
+ul.clean li { margin: 6px 0; }
+pre { background: #0f1720; color: #d1fae5; padding: 16px; border-radius: 12px; overflow-x: auto; font-size: 13px; }
+footer { padding: 48px 0 40px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); margin-top: 64px; }
+
+@media (max-width: 820px) {
+  .stats { grid-template-columns: 1fr 1fr; }
+  .grid2, .grid3 { grid-template-columns: 1fr; }
+  .arrow { display: none; }
+  header.hero { padding: 52px 0 60px; }
+}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="brand" href="#top">Seeing the Unseen Player</a>
+  <a class="l" href="#problem">Problem</a>
+  <a class="l" href="#method">Method</a>
+  <a class="l" href="#demo">Demo</a>
+  <a class="l" href="#results">Results</a>
+  <a class="l" href="#code">Code</a>
+</div></nav>
+
+<header class="hero" id="top"><div class="wrap">
+  <div class="eyebrow">M.Tech Thesis · Artificial Intelligence</div>
+  <h1>Audio-Visual Action Spotting for Automated Highlight Generation in Soccer Broadcasts</h1>
+  <p class="lead">One in five actions in a soccer broadcast is made by a player the camera isn't showing. This project finds them from tracking data, checks every detection against the player's movement, and builds highlight reels ranked with the crowd's reaction.</p>
+  <div class="byline">Sidharth S Nair · Guide: Dr. Manjusha R · Department of Computer Science and Engineering, Amrita School of Computing, Coimbatore</div>
+  <div class="btns">
+    <a class="btn primary" href="https://github.com/sidharth1snair/FOOTPASS-audio-fusion" target="_blank" rel="noopener">View code on GitHub →</a>
+    <a class="btn ghost" href="#demo">Watch the demo</a>
+  </div>
+</div></header>
+
+<div class="wrap">
+  <div class="stats">
+    <div class="stat"><b>17.5%</b><span>of events are made by players with no bounding box</span></div>
+    <div class="stat"><b>2% → 42%</b><span>of those hidden events now found</span></div>
+    <div class="stat"><b>0.47 → 0.70</b><span>micro F1 on six held-out matches</span></div>
+    <div class="stat"><b>0.87 M</b><span>parameters, about 1/50 of the published second stage</span></div>
+  </div>
+</div>
+
+<section id="problem"><div class="wrap">
+  <h2>Problem statement</h2>
+  <p class="sub">Player-centric action spotting asks not only <em>what</em> happened and <em>when</em>, but <em>who</em> did it: the frame, team, shirt number and one of eight actions (drive, pass, cross, throw-in, shot, header, tackle, block), as in the FOOTPASS benchmark.</p>
+  <div class="grid2">
+    <div class="card">
+      <span class="tag">Hidden players</span>
+      <h3>The camera decides what you see</h3>
+      <p>Replays, close-ups and wide shots mean the acting player is often off screen. In the validation matches, 1,062 of 6,070 events have no bounding box, and the video detector (TAAD) finds only 1.3% of them: it has no pixels to look at.</p>
+    </div>
+    <div class="card">
+      <span class="tag">False alarms</span>
+      <h3>Per-player detectors over-predict</h3>
+      <p>The detector scores every player independently. It reports several players acting at the same instant and fires where nothing happened. More than half of its confident predictions are wrong.</p>
+    </div>
+    <div class="card">
+      <span class="tag">Importance</span>
+      <h3>Not every shot is a highlight</h3>
+      <p>A goal and a harmless long shot share the same action class. A highlight reel needs a signal of importance beyond the label.</p>
+    </div>
+    <div class="card">
+      <span class="tag">Audio?</span>
+      <h3>Does sound help?</h3>
+      <p>Crowd and commentary react to play and continue during replays. The question is what audio can really contribute, measured with controls rather than assumed.</p>
+    </div>
+  </div>
+</div></section>
+
+<section id="method"><div class="wrap">
+  <h2>Methodology</h2>
+  <p class="sub">Each source of information gets a clear job: video for visible players, tracking data for hidden players and for checking detections, and audio for judging importance.</p>
+  <div class="flow">
+    <div class="node"><b>Broadcast video</b><small>+ player boxes</small></div><div class="arrow">→</div>
+    <div class="node"><b>TAAD</b><small>visual detector with audio branch</small></div><div class="arrow">→</div>
+    <div class="node key"><b>Event Verifier</b><small>checks each detection against tracking</small></div><div class="arrow">→</div>
+    <div class="node key"><b>HPI</b><small>adds hidden-player events</small></div><div class="arrow">→</div>
+    <div class="node"><b>One-action rule</b><small>one player acts at a time</small></div><div class="arrow">→</div>
+    <div class="node"><b>Highlight reel</b><small>ranked with audio excitement</small></div>
+  </div>
+  <div class="grid3">
+    <div class="card"><span class="tag">Model 1</span><h3>Hidden-Player Inference (HPI)</h3><p>A 0.44 M-parameter network: a Transformer across the 26 player slots at each frame, then a bidirectional GRU over 10 s of play. It reads positions, velocities and the visible players' context, and is trained only on players without a box.</p></div>
+    <div class="card"><span class="tag">Model 2</span><h3>Event Verifier</h3><p>The same architecture, using tracking data only, trained on all players. For every TAAD detection it asks: <em>did this player move like someone making this action, at this moment?</em> A logistic regression turns the answer into a new score.</p></div>
+    <div class="card"><span class="tag">Rule</span><h3>One action at a time</h3><p>All events from both models are sorted by confidence, and an event is kept only if no stronger event lies within ±12 frames. No training needed. The window was chosen from how close real events are in the data.</p></div>
+    <div class="card"><span class="tag">Audio</span><h3>Learned per-class delay</h3><p>Crowd (20–500 Hz) and commentary (300–3400 Hz) energy, with a learned delay τ for each action class, so the model can look for the reaction after the event.</p></div>
+    <div class="card"><span class="tag">Honest testing</span><h3>Controls for every claim</h3><p>Every gain is tested against inputs shifted in time, shuffled players, or audio from another match. If the gain is real, it must disappear under these controls.</p></div>
+    <div class="card"><span class="tag">Output</span><h3>Highlight generator</h3><p>Moments are scored by action importance, confidence and the audio peak after the event, then assembled into a reel of the target length.</p></div>
+  </div>
+</div></section>
+
+<section id="demo"><div class="wrap">
+  <h2>Demo</h2>
+  <p class="sub">Thirty seconds of a validation match, drawn from the tracking data. Filled circles are players visible on the broadcast; hollow circles are off screen. The timeline below compares the ground truth with TAAD alone and with the final system.</p>
+  <div class="video">
+    <video src="assets/demo.mp4" controls playsinline preload="metadata" poster="assets/demo_poster.png" aria-label="Demo: predictions of the final system on a top-down pitch view"></video>
+  </div>
+  <div class="legend">
+    <span><i class="dot" style="background:#2ecc71"></i>correct prediction</span>
+    <span><i class="dot" style="background:#e74c3c"></i>wrong prediction</span>
+    <span><i class="dot" style="background:#ffd23f"></i>hidden event found by HPI</span>
+    <span><i class="dot" style="border:2px solid #4aa3ff"></i>player off screen</span>
+  </div>
+  <p class="sub" style="margin-top:14px">Broadcast footage is not shown: SoccerNet videos may not be redistributed. Watch TAAD's row fill with red crosses while the final system stays clean, and the gold star when HPI finds a pass by a player who is not on screen.</p>
+</div></section>
+
+<section id="results"><div class="wrap">
+  <h2>Results</h2>
+  <p class="sub">Internal test set: six held-out matches (11,442 events, 2,546 hidden), scored once after every setting was fixed on separate matches. Mean ± standard deviation of three training seeds.</p>
+  <div class="tblwrap">
+  <table class="tbl">
+    <thead><tr><th>System</th><th>Micro F1</th><th>Macro F1</th><th>Hidden recall</th></tr></thead>
+    <tbody>
+      <tr><td>TAAD alone</td><td>0.471</td><td>0.338</td><td>2.2%</td></tr>
+      <tr><td>TAAD + one-action rule</td><td>0.490</td><td>0.347</td><td>2.0%</td></tr>
+      <tr><td>TAAD + HPI + rule</td><td>0.543 ± 0.001</td><td>0.400 ± 0.003</td><td>39.4 ± 3.0%</td></tr>
+      <tr><td>+ per-class calibration</td><td>0.587 ± 0.003</td><td>0.462 ± 0.010</td><td>41.5 ± 3.9%</td></tr>
+      <tr class="best"><td>+ Event Verifier (final)</td><td>0.699 ± 0.006</td><td>0.549 ± 0.018</td><td>42.1 ± 3.9%</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="grid2" style="margin-top:22px">
+    <figure class="card" style="margin:0">
+      <div class="figure"><img src="assets/f1_progression.png" alt="Bar chart: micro and macro F1 rising from TAAD 0.471 to 0.699 with the Event Verifier" loading="lazy"></div>
+      <figcaption>Each step adds F1. The Verifier gives +0.11 over calibration alone (95% bootstrap interval +0.10 to +0.12 in every seed).</figcaption>
+    </figure>
+    <figure class="card" style="margin:0">
+      <div class="figure"><img src="assets/hidden_pitch.png" alt="Pitch map: all players off screen, HPI correctly predicts a throw-in by player 22 on the touchline" loading="lazy"></div>
+      <figcaption>The broadcast showed a close-up of the coach, so no player was visible. From tracking alone, HPI predicts a throw-in by #22 on the touchline, correctly.</figcaption>
+    </figure>
+  </div>
+  <figure class="card" style="margin:18px 0 0">
+    <div class="figure"><img src="assets/timeline.png" alt="Timeline of 30 seconds: TAAD has many wrong predictions, the final system few, and HPI finds a hidden pass" loading="lazy"></div>
+    <figcaption>Thirty seconds of a validation match. The rule removes a few of TAAD's false alarms, the Verifier removes most, and HPI recovers a hidden pass (square).</figcaption>
+  </figure>
+
+  <div class="grid3" style="margin-top:22px">
+    <div class="card"><h3>Precision 0.58 → 0.80</h3><p>The Verifier mainly removes false alarms. Recall also rises (0.51 → 0.62), because confirmed detections can be kept at a lower threshold.</p></div>
+    <div class="card"><h3>It uses the right player</h3><p>Shift the Verifier's input by 5 s, or shuffle the players, and F1 collapses to 0.22. The gain comes from real movement at the real moment.</p></div>
+    <div class="card"><h3>Stable across runs</h3><p>Three seeds agree within 0.01 micro F1, on validation (0.700) and on test (0.699), and every validation match improves.</p></div>
+  </div>
+
+  <div class="note"><b>Fair comparison.</b> The published TAAD + DST second stage reports 0.675 F1 on the official challenge matches, whose labels are withheld. This system reaches a similar level (0.699) with about one fiftieth of the parameters, but on different matches. It is DST-level, not a claim to beat DST. TAAD itself was trained on the six test matches; HPI and the Verifier never saw them.</div>
+</div></section>
+
+<section id="audio"><div class="wrap">
+  <h2>What audio does, and doesn't, do</h2>
+  <p class="sub">Audio was tested, not assumed. The answer is useful in a different way than expected.</p>
+  <div class="grid2">
+    <div class="card"><span class="tag" style="background:#fee2e2;color:#b91c1c">No gain</span><h3>It does not help spot events</h3><p>Real audio, audio from another match and audio shifted by 60 s give the same F1. An early rise from 0.404 to 0.472 came from extra training epochs, not from the sound. Audio carries no player identity, and most passes and drives make no distinct sound.</p></div>
+    <div class="card"><span class="tag">Real signal</span><h3>It helps judge importance</h3><p>The audio peak after a goal is louder than 73% of ordinary shots and headers in the same match, against 50% (chance) with audio from another match. In 3-minute reels, real audio included 48% of goals, against 27% with the wrong match's audio and 39% with no audio. The last difference is a trend, not yet significant.</p></div>
+  </div>
+</div></section>
+
+<section id="limits"><div class="wrap">
+  <h2>Limitations and next steps</h2>
+  <div class="grid2">
+    <div class="card"><h3>Limitations</h3><ul class="clean">
+      <li>HPI and the Verifier need tracking data for every player, which an ordinary broadcast does not provide; off-screen positions in FOOTPASS are imputed.</li>
+      <li>Rare classes (headers, tackles, blocks) are still mostly missed, so macro F1 stays below micro F1.</li>
+      <li>Audio results rest on 33–45 goals from a limited number of matches.</li>
+    </ul></div>
+    <div class="card"><h3>Next steps</h3><ul class="clean">
+      <li>Score on the official SoccerNet challenge server, to compare with DST on the same matches.</li>
+      <li>An Event Corrector that fixes the player, team or class of a detection instead of only accepting or rejecting it.</li>
+      <li>Estimate player positions from the broadcast itself, and test on noisier tracking.</li>
+    </ul></div>
+  </div>
+</div></section>
+
+<section id="code"><div class="wrap">
+  <h2>Code and data</h2>
+  <p class="sub">The code extends the public FOOTPASS baseline. Data access requires the SoccerNet NDA.</p>
+  <div class="grid2">
+    <div class="card"><h3>Repository</h3><p style="margin-bottom:14px">Training and evaluation for HPI, the Event Verifier, the audio branch and tests, and the highlight generator, with commands in the README.</p>
+      <a class="btn primary" style="background:var(--accent);color:#fff" href="https://github.com/sidharth1snair/FOOTPASS-audio-fusion" target="_blank" rel="noopener">github.com/sidharth1snair/FOOTPASS-audio-fusion</a></div>
+    <div class="card"><h3>Run the Event Verifier</h3>
+<pre>python event_verifier.py train --run ver_seed0 --seed 0
+python event_verifier.py fuse  --run ver_seed0 \
+       --hpi_run v7_33g_seed0 --test</pre></div>
+  </div>
+  <div class="card" style="margin-top:18px"><h3>Built on</h3><p>FOOTPASS dataset and TAAD / DST baselines: Ochin, Chekroun, Stanciulescu and Manitsaris, <em>Computer Vision and Image Understanding</em> 269, 104790 (2026). Data: <a href="https://huggingface.co/datasets/SoccerNet/SN-PCBAS-2026" target="_blank" rel="noopener">SoccerNet SN-PCBAS-2026</a>. Annotations and baselines under CC BY-NC 4.0.</p></div>
+</div></section>
+
+<footer><div class="wrap">
+  © 2026 Sidharth S Nair · M.Tech in Artificial Intelligence, Amrita Vishwa Vidyapeetham, Coimbatore. Non-commercial academic project.
+</div></footer>
+
+</body>
+</html>
