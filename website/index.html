@@ -60,6 +60,7 @@ h2 { font-size: clamp(24px, 3.4vw, 34px); letter-spacing: -.01em; margin: 0 0 8p
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.grid2 > *, .grid3 > * { min-width: 0; }
 .card h3 { margin: 0 0 6px; font-size: 18px; }
 .card p { margin: 0; color: var(--muted); font-size: 15px; }
 .tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); margin-bottom: 10px; }
@@ -104,6 +105,7 @@ footer { padding: 48px 0 40px; color: var(--muted); font-size: 14px; border-top:
   <a class="l" href="#problem">Problem</a>
   <a class="l" href="#method">Method</a>
   <a class="l" href="#demo">Demo</a>
+  <a class="l" href="#reel" id="reellink" hidden>Highlights</a>
   <a class="l" href="#results">Results</a>
   <a class="l" href="#code">Code</a>
 </div></nav>
@@ -190,6 +192,25 @@ footer { padding: 48px 0 40px; color: var(--muted); font-size: 14px; border-top:
   </div>
   <p class="sub" style="margin-top:14px">Broadcast footage is not shown: SoccerNet videos may not be redistributed. Watch TAAD's row fill with red crosses while the final system stays clean, and the gold star when HPI finds a pass by a player who is not on screen.</p>
 </div></section>
+
+<section id="reel" hidden><div class="wrap">
+  <h2>Generated highlight reel</h2>
+  <p class="sub">A three-minute reel built automatically for one full match (game 10). The generator picks moments by action class, confidence and the audio reaction after each event, and reads goals from the on-screen score. It found 10 moments, including three goals and two disallowed goals.</p>
+  <div class="video">
+    <video id="reelvid" src="assets/private/highlight_reel.mp4" controls playsinline preload="metadata" poster="assets/private/highlight_poster.jpg" aria-label="Automatically generated highlight reel of game 10"></video>
+  </div>
+  <p class="sub" style="margin-top:14px">Private copy: SoccerNet broadcast footage, shown only in the local version of this site.</p>
+</div></section>
+<script>
+  (function () {
+    var v = document.getElementById("reelvid");
+    function show() {
+      document.getElementById("reel").hidden = false;
+      document.getElementById("reellink").hidden = false;
+    }
+    if (v.readyState >= 1) show(); else v.addEventListener("loadedmetadata", show);
+  })();
+</script>
 
 <section id="results"><div class="wrap">
   <h2>Results</h2>

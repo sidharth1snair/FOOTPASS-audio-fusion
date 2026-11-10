@@ -58,3 +58,6 @@ review2_ppt/
 ppt_charts/
 PROJECT_SUMMARY_FOR_PPT.md
 UC-*.jpg
+
+# Broadcast footage: local copy of the website only, never pushed (SoccerNet NDA)
+website/assets/private/
